@@ -132,7 +132,7 @@ class LLDA:
         n_z = numpy.zeros(self.K, dtype=numpy.int32)
 
         N_m = len(doc)
-        z_n = [numpy.random.multinomial(1, label / label.sum()).argmax() for x in range(N_m)]
+        z_n = [numpy.random.multinomial(1, label / label.sum()).argmax() for i in range(N_m)]
         for t, z in zip(doc, z_n):
             n_m_z[0, z] += 1
             n_z_t[z, t] += 1
@@ -216,8 +216,6 @@ def main():
         one_topic_info = [t, ", ".join(vals[:10])]
         table.append(one_topic_info)
     print(tabulate(table, headers=["topic", "topic words"]))
-
-
 
 
 if __name__ == "__main__":
