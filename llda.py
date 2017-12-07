@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
+from optparse import OptionParser
+from collections import defaultdict
 import sys
 import re
-from optparse import OptionParser
-
 import numpy
+import operator
+from tabulate import tabulate
 
 
 def load_corpus(filename):
@@ -15,7 +17,8 @@ def load_corpus(filename):
             mt = re.match(r'\[(.+?)\](.+)', line)
             if mt:
                 label = mt.group(1).split(',')
-                for x in label: labelmap[x] = 1 
+                for x in label:
+                    labelmap[x] = 1
                 line = mt.group(2)
             else:
                 label = None
@@ -27,7 +30,7 @@ def load_corpus(filename):
 
 
 class LLDA:
-    def __init__(self, alpha, beta, K = 100):
+    def __init__(self, alpha, beta, K=100):
         self.alpha = alpha
         self.beta = beta
         self.K = K
@@ -43,7 +46,7 @@ class LLDA:
 
     def find_term_id(self, term):
         return self.vocas_id.get(term)
-                             
+
     def complement_label(self, label):
         if not label: return numpy.ones(len(self.labelmap))
         vec = numpy.zeros(len(self.labelmap))
@@ -51,20 +54,21 @@ class LLDA:
         for x in label: vec[self.labelmap[x]] = 1.0
         return vec
 
-    def set_corpus(self, corpus, labels = []):
+    def set_corpus(self, corpus, labels=[]):
 
         self.labelset = []
         if len(labels) != 0:
             for label in labels:
                 self.labelset += label
             self.labelset = list(set(self.labelset))
-            self.labelset.insert(0, "common")
+            self.labelset.insert(0, 'common')
             self.labelmap = dict(zip(self.labelset, range(len(self.labelset))))
+            self.label_index_mapping = dict(zip(range(len(self.labelset)), self.labelset))
             self.K = len(self.labelmap)
             self.labels = numpy.array([self.complement_label(label) for label in labels])
         else:
             self.labels = numpy.array([[1.0 for j in range(self.K)] for i in range(len(corpus))])
-        
+
         self.vocas = []
         self.vocas_id = dict()
         self.docs = [[self.term_to_id(term) for term in doc] for doc in corpus]
@@ -86,11 +90,12 @@ class LLDA:
                 self.n_z_t[z, t] += 1
                 self.n_z[z] += 1
 
-    def inference(self, iteration = 100):
+
+    def inference(self, iteration=100):
         V = len(self.vocas)
         kalpha = self.K * self.alpha
         vbeta = V * self.beta
-        
+
         for _iter in range(iteration):
             for m, doc, label in zip(range(len(self.docs)), self.docs, self.labels):
                 for n in range(len(doc)):
@@ -102,15 +107,15 @@ class LLDA:
 
                     denom_b = self.n_z + vbeta
 
-                    p_z = label * (self.n_z_t[:, t] + self.beta) * (self.n_m_z[m] + self.alpha) / denom_b 
+                    p_z = label * (self.n_z_t[:, t] + self.beta) * (self.n_m_z[m] + self.alpha) / denom_b
                     new_z = numpy.random.multinomial(1, p_z / p_z.sum()).argmax()
-                    
+
                     self.z_m_n[m][n] = new_z
                     self.n_m_z[m, new_z] += 1
                     self.n_z_t[new_z, t] += 1
                     self.n_z[new_z] += 1
-                    
-            sys.stderr.write("-- %d : %.4f\n" % (_iter, self.perplexity()))
+
+            sys.stderr.write("iteration: %d : %.4f\n" % (_iter, self.perplexity()))
 
     def fold(self, new_doc = [], label = [], iteration = 50):
         V = len(self.vocas)
@@ -119,9 +124,9 @@ class LLDA:
 
         if len(label) != 0: label = numpy.array(self.complement_label(label))
         else: label = numpy.array([1.0 for i in range(self.K)])
-            
+
         doc = [self.find_term_id(term) for term in new_doc if self.find_term_id(term) is not None]
-        
+
         n_m_z = numpy.zeros((1, self.K), dtype=numpy.int32)
         n_z_t = numpy.zeros((self.K, V), dtype=numpy.int32)
         n_z = numpy.zeros(self.K, dtype=numpy.int32)
@@ -132,7 +137,7 @@ class LLDA:
             n_m_z[0, z] += 1
             n_z_t[z, t] += 1
             n_z[z] += 1
-        
+
         for _iter in range(iteration):
             for n in range(len(doc)):
                 t = doc[n]
@@ -140,10 +145,10 @@ class LLDA:
                 n_m_z[0, z] -= 1
                 n_z_t[z, t] -= 1
                 n_z[z] -= 1
-                
+
                 denom_b = n_z + self.n_z + vbeta
-                
-                p_z = label * (n_z + self.n_z_t[:, t] + self.beta) * (n_m_z[0] + self.alpha) / denom_b 
+
+                p_z = label * (n_z + self.n_z_t[:, t] + self.beta) * (n_m_z[0] + self.alpha) / denom_b
                 new_z = numpy.random.multinomial(1, p_z / p_z.sum()).argmax()
 
                 z_n[n] = new_z
@@ -154,7 +159,7 @@ class LLDA:
         labels = numpy.array([label])
         n_alpha = n_m_z + labels * self.alpha
         return (n_alpha / n_alpha.sum(axis=1)[:, numpy.newaxis])[0]
-        
+
     def phi(self):
         V = len(self.vocas)
         return (self.n_z_t + self.beta) / (self.n_z[:, numpy.newaxis] + V * self.beta)
@@ -193,10 +198,26 @@ def main():
     llda.set_corpus(corpus, labels)
 
     llda.inference(options.iteration)
-
     phi = llda.phi()
+    topic_words = defaultdict(list)
     for v, voca in enumerate(llda.vocas):
-        print(','.join([voca]+[str(x) for x in phi[:,v]]))
+        probs = [x for x in phi[:, v]]
+        max_index, max_value = max(enumerate(probs), key=operator.itemgetter(1))
+        topic_label = llda.label_index_mapping[max_index]
+        topic_words[topic_label].append((voca, max_value))
+
+    final_topic_words = defaultdict(list)
+    for t in topic_words.keys():
+        sorted_result = [item[0] for item in sorted(topic_words[t], key=lambda x: x[1], reverse=True)]
+        final_topic_words[t] = sorted_result
+
+    table = []
+    for t, vals in final_topic_words.items():
+        one_topic_info = [t, ", ".join(vals[:10])]
+        table.append(one_topic_info)
+    print(tabulate(table, headers=["topic", "topic words"]))
+
+
 
 
 if __name__ == "__main__":
