@@ -10,7 +10,7 @@ Data
 Input data is required in following format:
 
 ```
-[label1,label2,...]doc_text``
+[label1,label2,...]doc_text
 ```
 
 
