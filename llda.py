@@ -213,7 +213,7 @@ def main():
 
     table = []
     for t, vals in final_topic_words.items():
-        one_topic_info = [t, ", ".join(vals[:10])]
+        one_topic_info = [t, ", ".join(vals[:20])]
         table.append(one_topic_info)
     print(tabulate(table, headers=["topic", "topic words"]))
 
